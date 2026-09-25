@@ -1,0 +1,121 @@
+#include <Arduino.h>
+
+// LCD nối với ESP8266
+#define LCD_RS  5    // D1 / GPIO5
+#define LCD_EN  4    // D2 / GPIO4
+
+#define LCD_D4  14   // D5 / GPIO14
+#define LCD_D5  12   // D6 / GPIO12
+#define LCD_D6  13   // D7 / GPIO13
+#define LCD_D7  15   // D8 / GPIO15
+
+
+void lcd_enable()
+{
+    digitalWrite(LCD_EN, HIGH);
+    delayMicroseconds(1);
+    digitalWrite(LCD_EN, LOW);
+    delayMicroseconds(100);
+}
+
+
+void lcd_send4bit(uint8_t data)
+{
+    digitalWrite(LCD_D4, (data >> 0) & 1);
+    digitalWrite(LCD_D5, (data >> 1) & 1);
+    digitalWrite(LCD_D6, (data >> 2) & 1);
+    digitalWrite(LCD_D7, (data >> 3) & 1);
+
+    lcd_enable();
+}
+
+
+void lcd_command(uint8_t command)
+{
+    digitalWrite(LCD_RS, LOW);
+
+    lcd_send4bit(command >> 4);
+    lcd_send4bit(command & 0x0F);
+
+    delay(2);
+}
+
+
+void lcd_write_char(char data)
+{
+    digitalWrite(LCD_RS, HIGH);
+
+    lcd_send4bit(data >> 4);
+    lcd_send4bit(data & 0x0F);
+
+    delayMicroseconds(50);
+}
+
+
+void lcd_print(const char *text)
+{
+    while (*text)
+    {
+        lcd_write_char(*text);
+        text++;
+    }
+}
+
+
+void lcd_init()
+{
+    pinMode(LCD_RS, OUTPUT);
+    pinMode(LCD_EN, OUTPUT);
+
+    pinMode(LCD_D4, OUTPUT);
+    pinMode(LCD_D5, OUTPUT);
+    pinMode(LCD_D6, OUTPUT);
+    pinMode(LCD_D7, OUTPUT);
+
+    digitalWrite(LCD_RS, LOW);
+    digitalWrite(LCD_EN, LOW);
+
+    delay(50);
+
+    // Khởi tạo LCD 4-bit
+    lcd_send4bit(0x03);
+    delay(5);
+
+    lcd_send4bit(0x03);
+    delayMicroseconds(150);
+
+    lcd_send4bit(0x03);
+    delayMicroseconds(150);
+
+    lcd_send4bit(0x02);
+
+    // 4-bit, 2 dòng
+    lcd_command(0x28);
+
+    // Bật LCD, tắt con trỏ
+    lcd_command(0x0C);
+
+    // Xóa màn hình
+    lcd_command(0x01);
+    delay(2);
+
+    // Tự động tăng vị trí
+    lcd_command(0x06);
+}
+
+
+void setup()
+{
+    Serial.begin(115200);
+
+    lcd_init();
+
+    lcd_print("Hello");
+
+    Serial.println("ESP8266 GPIO - LCD");
+}
+
+
+void loop()
+{
+}

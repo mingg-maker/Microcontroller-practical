@@ -1,0 +1,356 @@
+#define F_CPU 16000000UL
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/delay.h>
+#include <stdint.h>
+
+/* =====================================================
+   LCD 1602
+   ===================================================== */
+
+#define LCD_RS PD2
+#define LCD_EN PD3
+
+#define LCD_D4 PD4
+#define LCD_D5 PD5
+#define LCD_D6 PD6
+#define LCD_D7 PD7
+
+
+/* =====================================================
+   INPUT CAPTURE
+   PB0 = ICP1
+   PB3 = OC2A -> tạo tín hiệu
+   ===================================================== */
+
+volatile uint16_t capture_previous = 0;
+volatile uint16_t capture_current  = 0;
+volatile uint16_t capture_period   = 0;
+
+volatile uint8_t capture_ready = 0;
+
+
+/* =====================================================
+   LCD LOW LEVEL
+   ===================================================== */
+
+void LCD_Send4Bit(uint8_t data)
+{
+    // Xóa D4-D7
+    PORTD &= ~((1 << LCD_D4) |
+               (1 << LCD_D5) |
+               (1 << LCD_D6) |
+               (1 << LCD_D7));
+
+    // Ghi từng bit
+    if (data & 0x01)
+        PORTD |= (1 << LCD_D4);
+
+    if (data & 0x02)
+        PORTD |= (1 << LCD_D5);
+
+    if (data & 0x04)
+        PORTD |= (1 << LCD_D6);
+
+    if (data & 0x08)
+        PORTD |= (1 << LCD_D7);
+
+    // Enable pulse
+    PORTD |= (1 << LCD_EN);
+    _delay_us(1);
+
+    PORTD &= ~(1 << LCD_EN);
+    _delay_us(100);
+}
+
+
+/* =====================================================
+   LCD SEND COMMAND
+   ===================================================== */
+
+void LCD_Command(uint8_t cmd)
+{
+    // RS = 0
+    PORTD &= ~(1 << LCD_RS);
+
+    LCD_Send4Bit(cmd >> 4);
+    LCD_Send4Bit(cmd & 0x0F);
+
+    _delay_ms(2);
+}
+
+
+/* =====================================================
+   LCD SEND DATA
+   ===================================================== */
+
+void LCD_Data(uint8_t data)
+{
+    // RS = 1
+    PORTD |= (1 << LCD_RS);
+
+    LCD_Send4Bit(data >> 4);
+    LCD_Send4Bit(data & 0x0F);
+
+    _delay_us(100);
+}
+
+
+/* =====================================================
+   LCD INIT
+   ===================================================== */
+
+void LCD_Init(void)
+{
+    // RS, EN, D4-D7 = OUTPUT
+    DDRD |= (1 << LCD_RS) |
+            (1 << LCD_EN) |
+            (1 << LCD_D4) |
+            (1 << LCD_D5) |
+            (1 << LCD_D6) |
+            (1 << LCD_D7);
+
+    _delay_ms(20);
+
+    // LCD khởi động 8-bit sequence
+    PORTD &= ~(1 << LCD_RS);
+
+    LCD_Send4Bit(0x03);
+    _delay_ms(5);
+
+    LCD_Send4Bit(0x03);
+    _delay_us(150);
+
+    LCD_Send4Bit(0x03);
+
+    // Chuyển sang 4-bit
+    LCD_Send4Bit(0x02);
+
+    // Function Set
+    LCD_Command(0x28);
+
+    // Display ON
+    LCD_Command(0x0C);
+
+    // Entry mode
+    LCD_Command(0x06);
+
+    // Clear
+    LCD_Command(0x01);
+
+    _delay_ms(2);
+}
+
+
+/* =====================================================
+   LCD GOTO
+   ===================================================== */
+
+void LCD_SetCursor(uint8_t row, uint8_t col)
+{
+    uint8_t address;
+
+    if (row == 0)
+        address = 0x80 + col;
+    else
+        address = 0xC0 + col;
+
+    LCD_Command(address);
+}
+
+
+/* =====================================================
+   LCD STRING
+   ===================================================== */
+
+void LCD_String(const char *str)
+{
+    while (*str)
+    {
+        LCD_Data(*str++);
+    }
+}
+
+
+/* =====================================================
+   LCD NUMBER
+   ===================================================== */
+
+void LCD_Number(uint32_t number)
+{
+    char buffer[11];
+    uint8_t i = 0;
+
+    if (number == 0)
+    {
+        LCD_Data('0');
+        return;
+    }
+
+    while (number > 0)
+    {
+        buffer[i++] = '0' + (number % 10);
+        number /= 10;
+    }
+
+    while (i > 0)
+    {
+        LCD_Data(buffer[--i]);
+    }
+}
+
+
+/* =====================================================
+   TIMER2
+   Tạo sóng vuông 1 kHz tại PB3 / OC2A
+   ===================================================== */
+
+void Timer2_Output_Init(void)
+{
+    // PB3 / OC2A = OUTPUT
+    DDRB |= (1 << PB3);
+
+    // CTC mode
+    // Toggle OC2A when Compare Match
+    TCCR2A = (1 << COM2A0) |
+             (1 << WGM21);
+
+    // Prescaler = 64
+    TCCR2B = (1 << CS22);
+
+    // 1 kHz
+    // f = 16MHz / (2 * 64 * (OCR2A + 1))
+    // OCR2A = 124
+
+    OCR2A = 124;
+}
+
+
+/* =====================================================
+   TIMER1 INPUT CAPTURE
+   ICP1 = PB0
+   ===================================================== */
+
+void Timer1_InputCapture_Init(void)
+{
+    // PB0 / ICP1 = INPUT
+    DDRB &= ~(1 << PB0);
+
+    // Tắt pull-up
+    PORTB &= ~(1 << PB0);
+
+    // Timer1 Normal Mode
+    TCCR1A = 0;
+
+    // ICES1 = 1: bắt cạnh lên
+    // Prescaler = 8
+    //
+    // Timer1:
+    // 16MHz / 8 = 2MHz
+    // 1 tick = 0.5 us
+
+    TCCR1B = (1 << ICES1) |
+             (1 << CS11);
+
+    TCNT1 = 0;
+
+    // Clear flag
+    TIFR1 = (1 << ICF1);
+
+    // Enable Input Capture Interrupt
+    TIMSK1 = (1 << ICIE1);
+}
+
+
+/* =====================================================
+   INPUT CAPTURE ISR
+   ===================================================== */
+
+ISR(TIMER1_CAPT_vect)
+{
+    capture_current = ICR1;
+
+    capture_period =
+        capture_current - capture_previous;
+
+    capture_previous = capture_current;
+
+    capture_ready = 1;
+}
+
+
+/* =====================================================
+   MAIN
+   ===================================================== */
+
+int main(void)
+{
+    uint16_t period;
+    uint32_t frequency;
+
+    // LCD
+    LCD_Init();
+
+    // Tạo tín hiệu PB3
+    Timer2_Output_Init();
+
+    // Input Capture PB0
+    Timer1_InputCapture_Init();
+
+    sei();
+
+    // Màn hình ban đầu
+    LCD_SetCursor(0, 0);
+    LCD_String("INPUT CAPTURE");
+
+    LCD_SetCursor(1, 0);
+    LCD_String("Waiting...");
+
+    while (1)
+    {
+        if (capture_ready)
+        {
+            // Copy giá trị an toàn
+            cli();
+
+            period = capture_period;
+            capture_ready = 0;
+
+            sei();
+
+            if (period != 0)
+            {
+                // Timer1 = 2MHz
+                //
+                // Frequency =
+                // 2,000,000 / period
+
+                frequency =
+                    2000000UL / period;
+
+                // -------------------------------
+                // Dòng 1
+                // -------------------------------
+
+                LCD_SetCursor(0, 0);
+                LCD_String("Period:      ");
+
+                LCD_SetCursor(0, 8);
+                LCD_Number(period);
+
+                // -------------------------------
+                // Dòng 2
+                // -------------------------------
+
+                LCD_SetCursor(1, 0);
+                LCD_String("Freq:        ");
+
+                LCD_SetCursor(1, 6);
+                LCD_Number(frequency);
+
+                LCD_String(" Hz");
+            }
+        }
+    }
+}

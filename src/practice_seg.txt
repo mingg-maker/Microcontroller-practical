@@ -1,0 +1,84 @@
+#include <Arduino.h>
+
+const int LDR_PIN = A0;     // Chân PC0 đọc tín hiệu AO1 từ J40
+const int LED_PWM_PIN = 10; // Chân PB2 (D10) điều khiển độ sáng LED bằng PWM
+
+// CẤU HÌNH LOẠI LED 7 ĐOẠN TRÊN KIT:
+// Đặt true nếu là Cathode chung (GND) | false nếu là Anode chung (5V)
+const bool IS_COMMON_CATHODE = false; 
+
+const int SEGMENT_PINS[7] = {2, 3, 4, 5, 6, 7, 8};
+
+const byte DIGIT_PATTERNS[10][7] = {
+  {1, 1, 1, 1, 1, 1, 0}, // 0
+  {0, 1, 1, 0, 0, 0, 0}, // 1
+  {1, 1, 0, 1, 1, 0, 1}, // 2
+  {1, 1, 1, 1, 0, 0, 1}, // 3
+  {0, 1, 1, 0, 0, 1, 1}, // 4
+  {1, 0, 1, 1, 0, 1, 1}, // 5
+  {1, 0, 1, 1, 1, 1, 1}, // 6
+  {1, 1, 1, 0, 0, 0, 0}, // 7
+  {1, 1, 1, 1, 1, 1, 1}, // 8
+  {1, 1, 1, 1, 0, 1, 1}  // 9
+};
+
+unsigned long lastSerialTime = 0;
+
+void displayDigit(int digit) {
+    if (digit < 0) digit = 0;
+    if (digit > 9) digit = 9;
+    
+    for (int i = 0; i < 7; i++) {
+        byte bitState = DIGIT_PATTERNS[digit][i];
+        if (!IS_COMMON_CATHODE) {
+            bitState = !bitState; // Đảo logic nếu là Anode chung
+        }
+        digitalWrite(SEGMENT_PINS[i], bitState);
+    }
+}
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(LED_PWM_PIN, OUTPUT);
+
+    for (int i = 0; i < 7; i++) {
+        pinMode(SEGMENT_PINS[i], OUTPUT);
+    }
+
+    Serial.println("=== ATMEGA328 PRACTICE 11: OPTIMIZED PWM READY ===");
+}
+
+void loop() {
+    int adcValue = analogRead(LDR_PIN);
+
+    // DẢI ĐO THỰC TẾ TRÊN KIT: MIN_ADC = 150 (Tối), MAX_ADC = 650 (Sáng)
+    int pwmValue = 0;
+
+    if (adcValue >= 650) {
+        pwmValue = 0; // Ánh sáng phòng bình thường/sáng -> TẮT HẲN LED
+    } else {
+        // Ánh sáng giảm xuống -> Map mượt từ 0 (tắt) đến 255 (sáng rực)
+        pwmValue = map(adcValue, 650, 150, 0, 255);
+        pwmValue = constrain(pwmValue, 0, 255); // Giới hạn dải PWM chuẩn 0-255
+    }
+
+    // Xuất xung PWM ra LED D10
+    analogWrite(LED_PWM_PIN, pwmValue);
+
+    // Quy đổi hiển thị mức sáng 0 - 9 ra LED 7 đoạn
+    int lightLevel = map(adcValue, 150, 650, 0, 9);
+    lightLevel = constrain(lightLevel, 0, 9);
+    displayDigit(lightLevel);
+
+    // In thông số ra Serial
+    if (millis() - lastSerialTime >= 500) {
+        lastSerialTime = millis();
+
+        Serial.print("LDR ADC: ");
+        Serial.print(adcValue);
+        Serial.print(" | LED PWM: ");
+        Serial.print(pwmValue);
+        Serial.print("/255 | 7-Seg Level: ");
+        Serial.println(lightLevel);
+    }
+}

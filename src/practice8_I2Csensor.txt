@@ -1,0 +1,142 @@
+#define F_CPU 16000000UL
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include <stdint.h>
+
+// =====================================================
+// UART
+// =====================================================
+
+void uart_init(void)
+{
+    UBRR0H = 0;
+    UBRR0L = 103;              // 9600 baud @ 16MHz
+
+    UCSR0B = (1 << TXEN0);
+
+    UCSR0C = (1 << UCSZ01) |
+             (1 << UCSZ00);
+}
+
+void uart_send_char(char c)
+{
+    while (!(UCSR0A & (1 << UDRE0)));
+    UDR0 = c;
+}
+
+void uart_send_string(const char *s)
+{
+    while (*s)
+        uart_send_char(*s++);
+}
+
+void uart_send_hex(uint8_t x)
+{
+    const char hex[] = "0123456789ABCDEF";
+
+    uart_send_char(hex[(x >> 4) & 0x0F]);
+    uart_send_char(hex[x & 0x0F]);
+}
+
+
+// =====================================================
+// I2C
+// =====================================================
+
+void i2c_init(void)
+{
+    // PC4 SDA, PC5 SCL
+    DDRC &= ~((1 << PC4) | (1 << PC5));
+
+    // Pull-up nội bộ
+    PORTC |= (1 << PC4) | (1 << PC5);
+
+    // Prescaler = 1
+    TWSR &= ~((1 << TWPS1) | (1 << TWPS0));
+
+    // 100 kHz
+    TWBR = 72;
+
+    TWCR = (1 << TWEN);
+}
+
+
+uint8_t i2c_start(void)
+{
+    TWCR = (1 << TWINT) |
+           (1 << TWSTA) |
+           (1 << TWEN);
+
+    while (!(TWCR & (1 << TWINT)));
+
+    return (TWSR & 0xF8);
+}
+
+
+uint8_t i2c_write(uint8_t data)
+{
+    TWDR = data;
+
+    TWCR = (1 << TWINT) |
+           (1 << TWEN);
+
+    while (!(TWCR & (1 << TWINT)));
+
+    return (TWSR & 0xF8);
+}
+
+
+void i2c_stop(void)
+{
+    TWCR = (1 << TWINT) |
+           (1 << TWEN) |
+           (1 << TWSTO);
+
+    _delay_us(20);
+}
+
+
+// =====================================================
+// TEST AHT10
+// =====================================================
+
+int main(void)
+{
+    uint8_t status;
+
+    uart_init();
+    i2c_init();
+
+    _delay_ms(500);
+
+    uart_send_string("\r\nAHT10 I2C TEST\r\n");
+    uart_send_string("Scanning address 0x38...\r\n");
+
+    status = i2c_start();
+
+    uart_send_string("START status = 0x");
+    uart_send_hex(status);
+    uart_send_string("\r\n");
+
+    status = i2c_write((0x38 << 1) | 0);
+
+    uart_send_string("ADDRESS status = 0x");
+    uart_send_hex(status);
+    uart_send_string("\r\n");
+
+    i2c_stop();
+
+    if (status == 0x18)
+    {
+        uart_send_string("AHT10 FOUND!\r\n");
+    }
+    else
+    {
+        uart_send_string("AHT10 NOT FOUND!\r\n");
+    }
+
+    while (1)
+    {
+    }
+}

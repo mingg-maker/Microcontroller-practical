@@ -1,0 +1,387 @@
+#include <Arduino.h>
+#include <avr/interrupt.h>
+
+/*
+ * ============================================================
+ * PRACTICE 5: TIMER AND SCHEDULER
+ * ============================================================
+ *
+ * Task 1: Read ADC every 10 ms
+ * Task 2: Update LED/PWM every 20 ms
+ * Task 3: Read Sensor every 100 ms
+ * Task 4: Send UART every 1000 ms
+ *
+ * MCU      : ATmega328P
+ * Board    : Arduino Uno / TDC-3625
+ * CPU Clock: 16 MHz
+ * UART     : 9600 baud
+ *
+ * Timer1 generates a 1 ms system tick.
+ * The scheduler uses this tick to execute periodic tasks.
+ */
+
+
+/* ============================================================
+ * 1. PIN DEFINITIONS
+ * ============================================================
+ */
+
+// Task 1: ADC
+#define ADC_PIN       A0
+
+// Task 3: Sensor
+#define SENSOR_PIN    A1
+
+// Task 2: PWM LED
+#define LED_PIN       9
+
+
+/* ============================================================
+ * 2. TASK PERIODS
+ * ============================================================
+ */
+
+#define ADC_PERIOD       10       // 10 ms
+#define LED_PERIOD       20       // 20 ms
+#define SENSOR_PERIOD    100      // 100 ms
+#define UART_PERIOD      1000     // 1000 ms
+
+
+/* ============================================================
+ * 3. SYSTEM TICK
+ * ============================================================
+ *
+ * Timer1 interrupt occurs every 1 ms.
+ *
+ * systemTick:
+ *     0, 1, 2, 3, 4, ...
+ *
+ */
+
+volatile uint32_t systemTick = 0;
+
+
+/* ============================================================
+ * 4. LAST EXECUTION TIME OF EACH TASK
+ * ============================================================
+ */
+
+uint32_t lastADCTime = 0;
+uint32_t lastLEDTime = 0;
+uint32_t lastSensorTime = 0;
+uint32_t lastUARTTime = 0;
+
+
+/* ============================================================
+ * 5. DATA VARIABLES
+ * ============================================================
+ */
+
+uint16_t adcValue = 0;
+uint16_t sensorValue = 0;
+
+uint8_t pwmValue = 0;
+
+
+/* ============================================================
+ * 6. TIMER1 INITIALIZATION
+ * ============================================================
+ *
+ * CPU frequency:
+ *
+ *     F_CPU = 16 MHz
+ *
+ * Prescaler:
+ *
+ *     64
+ *
+ * Timer frequency:
+ *
+ *     16,000,000 / 64 = 250,000 Hz
+ *
+ * Timer tick:
+ *
+ *     1 / 250,000 = 4 us
+ *
+ * We need 1 ms:
+ *
+ *     1 ms / 4 us = 250 counts
+ *
+ * Therefore:
+ *
+ *     OCR1A = 249
+ *
+ * ============================================================
+ */
+
+void timer1_init()
+{
+    /*
+     * Reset Timer1 control registers
+     */
+    TCCR1A = 0;
+    TCCR1B = 0;
+
+
+    /*
+     * CTC Mode
+     *
+     * WGM12 = 1
+     */
+    TCCR1B |= (1 << WGM12);
+
+
+    /*
+     * Compare value
+     *
+     * Interrupt every 1 ms
+     */
+    OCR1A = 249;
+
+
+    /*
+     * Enable Timer1 Compare Match A interrupt
+     */
+    TIMSK1 |= (1 << OCIE1A);
+
+
+    /*
+     * Prescaler = 64
+     *
+     * CS11 = 1
+     * CS10 = 1
+     */
+    TCCR1B |= (1 << CS11) | (1 << CS10);
+}
+/* ============================================================
+ * 7. TIMER1 INTERRUPT
+ * ============================================================
+ *
+ * This ISR runs every 1 ms.
+ *
+ */
+
+ISR(TIMER1_COMPA_vect)
+{
+    systemTick++;
+}
+
+
+/* ============================================================
+ * 8. TASK 1
+ *
+ * Read ADC every 10 ms
+ * ============================================================
+ */
+
+void task_ADC()
+{
+    /*
+     * Read 10-bit ADC
+     *
+     * Range:
+     *
+     *     0 ~ 1023
+     */
+    adcValue = analogRead(ADC_PIN);
+}
+
+
+/* ============================================================
+ * 9. TASK 2
+ *
+ * Update LED/PWM every 20 ms
+ * ============================================================
+ */
+
+void task_LED_PWM()
+{
+    /*
+     * Convert ADC value:
+     *
+     * ADC:  0 ~ 1023
+     *
+     * PWM:  0 ~ 255
+     */
+
+    pwmValue = map(adcValue, 0, 1023, 0, 255);
+
+
+    /*
+     * Output PWM to D9 / PB1
+     */
+    analogWrite(LED_PIN, pwmValue);
+}
+
+
+/* ============================================================
+ * 10. TASK 3
+ *
+ * Read Sensor every 100 ms
+ * ============================================================
+ */
+
+void task_Sensor()
+{
+    /*
+     * Read sensor analog value
+     *
+     * Range:
+     *
+     *     0 ~ 1023
+     */
+
+    sensorValue = analogRead(SENSOR_PIN);
+}
+
+
+/* ============================================================
+ * 11. TASK 4
+ *
+ * Send UART every 1000 ms
+ * ============================================================
+ */
+
+void task_UART()
+{
+    Serial.print("Time = ");
+    Serial.print(systemTick);
+
+    Serial.print(" ms");
+
+    Serial.print(" | ADC = ");
+    Serial.print(adcValue);
+
+    Serial.print(" | PWM = ");
+    Serial.print(pwmValue);
+
+    Serial.print(" | Sensor = ");
+    Serial.println(sensorValue);
+}
+
+
+/* ============================================================
+ * 12. SETUP
+ * ============================================================
+ */
+
+void setup()
+{
+    /*
+     * Configure ADC pin
+     */
+    pinMode(ADC_PIN, INPUT);
+
+
+    /*
+     * Configure Sensor pin
+     */
+    pinMode(SENSOR_PIN, INPUT);
+
+
+    /*
+     * Configure LED/PWM pin
+     */
+    pinMode(LED_PIN, OUTPUT);
+
+
+    /*
+     * Initialize UART
+     */
+    Serial.begin(9600);
+
+
+    /*
+     * Initialize Timer1
+     */
+    timer1_init();
+
+
+    /*
+     * Enable global interrupts
+     */
+    sei();
+
+
+    /*
+     * Initial message
+     */
+    Serial.println();
+    Serial.println("====================================");
+    Serial.println(" Practice 5: Timer and Scheduler");
+    Serial.println("====================================");
+    Serial.println("System started...");
+    Serial.println();
+}
+
+
+/* ============================================================
+ * 13. MAIN LOOP / SCHEDULER
+ * ============================================================
+ */
+
+void loop()
+{
+    /*
+     * Get current system time
+     */
+    uint32_t currentTime = systemTick;
+/* ========================================================
+     * TASK 1
+     *
+     * ADC every 10 ms
+     * ========================================================
+     */
+
+    if ((currentTime - lastADCTime) >= ADC_PERIOD)
+    {
+        lastADCTime = currentTime;
+
+        task_ADC();
+    }
+
+
+    /* ========================================================
+     * TASK 2
+     *
+     * LED/PWM every 20 ms
+     * ========================================================
+     */
+
+    if ((currentTime - lastLEDTime) >= LED_PERIOD)
+    {
+        lastLEDTime = currentTime;
+
+        task_LED_PWM();
+    }
+
+
+    /* ========================================================
+     * TASK 3
+     *
+     * Sensor every 100 ms
+     * ========================================================
+     */
+
+    if ((currentTime - lastSensorTime) >= SENSOR_PERIOD)
+    {
+        lastSensorTime = currentTime;
+
+        task_Sensor();
+    }
+
+
+    /* ========================================================
+     * TASK 4
+     *
+     * UART every 1000 ms
+     * ========================================================
+     */
+
+    if ((currentTime - lastUARTTime) >= UART_PERIOD)
+    {
+        lastUARTTime = currentTime;
+
+        task_UART();
+    }
+}

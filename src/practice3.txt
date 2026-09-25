@@ -1,0 +1,69 @@
+#include <Arduino.h>
+
+// Khởi tạo Timer1 điều khiển Servo (Pin 9 / PB1 / OC1A)
+void servo_timer1_init() {
+  // 1. Cấu hình chân PB1 (Pin 9 / OC1A) làm OUTPUT
+  DDRB |= (1 << PB1); //[cite: 1]
+
+  // 2. Chế độ Fast PWM Mode 14: WGM13:10 = 1110 (TOP = ICR1)
+  // COM1A1:0 = 10 -> Clear OC1A on Compare Match, Set at BOTTOM (Non-inverting)
+  TCCR1A = (1 << COM1A1) | (1 << WGM11); //[cite: 1]
+  
+  // CS11 = 1 -> Prescaler = 8 (Timer clock = 16 MHz / 8 = 2 MHz)
+  TCCR1B = (1 << WGM13) | (1 << WGM12) | (1 << CS11); //[cite: 1]
+
+  // 3. Đặt chu kỳ 20 ms (50 Hz): 20 ms / 0.5 us - 1 = 39999 ticks
+  ICR1 = 39999; //[cite: 1]
+
+  // 4. Giá trị khởi tạo: 1.5 ms (Vị trí 90 độ): 1500 us / 0.5 us = 3000 ticks
+  OCR1A = 30000; //[cite: 1]
+}
+
+// Khởi tạo Timer0 điều khiển độ sáng LED (Pin 6 / PD6 / OC0A)
+void led_pwm_timer0_init() {
+  // Cấu hình chân PD6 (Pin 6 / OC0A) làm OUTPUT
+  DDRD |= (1 << PD6); //[cite: 1]
+
+  // Chế độ Fast PWM 8-bit (Mode 3, TOP = 0xFF): WGM01:00 = 11
+  // COM0A1:0 = 10 -> Non-inverting Fast PWM trên chân OC0A
+  TCCR0A = (1 << COM0A1) | (1 << WGM01) | (1 << WGM00); //[cite: 1]
+
+  // CS01:0 = 011 -> Prescaler = 64 (F_PWM = 16 MHz / (64 * 256) ≈ 976 Hz)
+  TCCR0B = (1 << CS01) | (1 << CS00); //[cite: 1]
+
+  OCR0A = 0; // Khởi đầu LED tắt[cite: 1]
+}
+
+// Hàm đặt góc quay Servo (0 đến 180 độ)
+void set_servo_angle(uint8_t angle) {
+  if (angle > 180) angle = 180;
+  // Ánh xạ tuyến tính: 0 deg -> 2000 ticks (1.0 ms), 180 deg -> 4000 ticks (2.0 ms)
+  uint16_t pulse_ticks = 2000 + ((uint32_t)angle * 2000) / 180;
+  OCR1A = pulse_ticks; //[cite: 1]
+}
+
+// Hàm đặt độ sáng LED (0 đến 255)
+void set_led_brightness(uint8_t duty) {
+  OCR0A = duty; //[cite: 1]
+}
+
+void setup() {
+  servo_timer1_init();
+  led_pwm_timer0_init();
+}
+
+void loop() {
+  // Quét servo từ 0 đến 180 độ và tăng dần độ sáng LED
+  for (uint8_t pos = 0; pos <= 180; pos += 10) {
+    set_servo_angle(pos);
+    set_led_brightness((uint16_t)pos * 255 / 180); // Tăng sáng tương ứng
+    delay(100);
+  }
+
+  // Quét servo ngược từ 180 về 0 độ và giảm dần độ sáng LED
+  for (int16_t pos = 180; pos >= 0; pos -= 10) {
+    set_servo_angle((uint8_t)pos);
+    set_led_brightness((uint16_t)pos * 255 / 180); // Giảm sáng tương ứng
+    delay(100);
+  }
+}

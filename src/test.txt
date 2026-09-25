@@ -1,0 +1,60 @@
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define PIR_PIN PD2
+
+void UART_Init(void)
+{
+    // Baud rate = 9600, F_CPU = 16 MHz
+    UBRR0H = 0;
+    UBRR0L = 103;
+
+    // Enable transmitter
+    UCSR0B = (1 << TXEN0);
+
+    // 8-bit data, 1 stop bit
+    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+}
+
+void UART_SendChar(char data)
+{
+    while (!(UCSR0A & (1 << UDRE0)));
+
+    UDR0 = data;
+}
+
+void UART_SendString(const char *str)
+{
+    while (*str)
+    {
+        UART_SendChar(*str);
+        str++;
+    }
+}
+
+int main(void)
+{
+    // PD2 = input
+    DDRD &= ~(1 << PIR_PIN);
+
+    // Initialize UART
+    UART_Init();
+
+    UART_SendString("PIR Sensor Started\r\n");
+
+    while (1)
+    {
+        if (PIND & (1 << PIR_PIN))
+        {
+            UART_SendString("YES\r\n");
+        }
+        else
+        {
+            UART_SendString("NO\r\n");
+        }
+
+        _delay_ms(500);
+    }
+
+    return 0;
+}

@@ -1,0 +1,80 @@
+#include <Arduino.h>
+#include <stdint.h>
+
+#define SPI_SCK   14    // D5
+#define SPI_MOSI  13    // D7
+#define SPI_MISO  12    // D6
+#define SPI_CS     4    // D2
+
+void spi_init()
+{
+    pinMode(SPI_SCK, OUTPUT);
+    pinMode(SPI_MOSI, OUTPUT);
+    pinMode(SPI_MISO, INPUT);
+    pinMode(SPI_CS, OUTPUT);
+
+    digitalWrite(SPI_SCK, LOW);
+    digitalWrite(SPI_MOSI, LOW);
+    digitalWrite(SPI_CS, HIGH);
+}
+
+void spi_cs_low()
+{
+    digitalWrite(SPI_CS, LOW);
+}
+
+void spi_cs_high()
+{
+    digitalWrite(SPI_CS, HIGH);
+}
+
+uint8_t spi_transfer(uint8_t data)
+{
+    uint8_t received = 0;
+
+    for (int i = 7; i >= 0; i--)
+    {
+        if (data & (1 << i))
+            digitalWrite(SPI_MOSI, HIGH);
+        else
+            digitalWrite(SPI_MOSI, LOW);
+
+        digitalWrite(SPI_SCK, HIGH);
+
+        if (digitalRead(SPI_MISO))
+            received |= (1 << i);
+
+        digitalWrite(SPI_SCK, LOW);
+    }
+
+    return received;
+}
+
+void setup()
+{
+    Serial.begin(115200);
+
+    spi_init();
+
+    Serial.println("SPI MASTER START");
+}
+
+void loop()
+{
+    uint8_t received;
+
+    spi_cs_low();
+
+    // Gửi 0x55
+    spi_transfer(0x55);
+
+    // Gửi byte dummy để nhận dữ liệu từ Slave
+    received = spi_transfer(0x00);
+
+    spi_cs_high();
+
+    Serial.print("Received: 0x");
+    Serial.println(received, HEX);
+
+    delay(1000);
+}

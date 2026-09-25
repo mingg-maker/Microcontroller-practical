@@ -1,0 +1,77 @@
+#define F_CPU 16000000UL
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include <stdint.h>
+
+#define EN_PIN   PB0
+#define PUL_PIN  PB1
+#define DIR_PIN  PB2
+
+
+void stepper_init(void)
+{
+    // PB0, PB1, PB2 = OUTPUT
+    DDRB |= (1 << EN_PIN) |
+            (1 << PUL_PIN) |
+            (1 << DIR_PIN);
+
+    // PUL = LOW
+    PORTB &= ~(1 << PUL_PIN);
+
+    // DIR = LOW
+    PORTB &= ~(1 << DIR_PIN);
+
+    // Enable driver
+    PORTB &= ~(1 << EN_PIN);
+}
+
+
+void step_pulse(void)
+{
+    PORTB |= (1 << PUL_PIN);
+
+    _delay_us(500);
+
+    PORTB &= ~(1 << PUL_PIN);
+
+    _delay_us(500);
+}
+
+
+void stepper_move(uint16_t steps, uint8_t direction)
+{
+    // Chọn chiều
+    if (direction == 0)
+        PORTB &= ~(1 << DIR_PIN);
+    else
+        PORTB |= (1 << DIR_PIN);
+
+    // Chờ DIR ổn định
+    _delay_us(20);
+
+    // Phát xung PUL
+    for (uint16_t i = 0; i < steps; i++)
+    {
+        step_pulse();
+    }
+}
+
+
+int main(void)
+{
+    stepper_init();
+
+    while (1)
+    {
+        // Quay thuận 200 xung
+        stepper_move(200, 0);
+
+        _delay_ms(1000);
+
+        // Quay ngược 200 xung
+        stepper_move(200, 1);
+
+        _delay_ms(1000);
+    }
+}

@@ -1,0 +1,54 @@
+#include <Arduino.h>
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define DIR_PIN PB0
+#define PUL_PIN PB1
+#define EN_PIN  PB2
+
+void StepMotor_Step(unsigned int steps)
+{
+    for (unsigned int i = 0; i < steps; i++)
+    {
+        // Tạo một xung PUL
+        PORTB |= (1 << PUL_PIN);
+        _delay_us(500);
+
+        PORTB &= ~(1 << PUL_PIN);
+        _delay_us(500);
+    }
+}
+
+void setup()
+{
+    // PB0, PB1, PB2 là output
+    DDRB |= (1 << DIR_PIN) |
+            (1 << PUL_PIN) |
+            (1 << EN_PIN);
+
+    // Enable driver
+    PORTB &= ~(1 << EN_PIN);
+
+    // PUL ban đầu LOW
+    PORTB &= ~(1 << PUL_PIN);
+
+    // Chiều quay 1
+    PORTB |= (1 << DIR_PIN);
+}
+
+void loop()
+{
+    // Quay chiều 1
+    PORTB |= (1 << DIR_PIN);
+
+    StepMotor_Step(1600);
+
+    _delay_ms(1000);
+
+    // Quay chiều ngược lại
+    PORTB &= ~(1 << DIR_PIN);
+
+    StepMotor_Step(1600);
+
+    _delay_ms(1000);
+}
