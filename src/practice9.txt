@@ -1,30 +1,20 @@
 #include <Arduino.h>
 #include <avr/io.h>
+#include <stdlib.h>
 
-// ============================================================
-// PRACTICE 9
-// Serial Control of Servo Motor - ATmega328P
-// F_CPU = 16 MHz
-// UART = 9600
-// Servo = PB1 / OC1A
-// ============================================================
-
-#define SERVO_MIN_US  600
-#define SERVO_MAX_US  2400
-
-// ------------------------------------------------------------
-// UART
-// ------------------------------------------------------------
+#define SERVO_MIN_US 600
+#define SERVO_MAX_US 2400
 
 void UART_init()
 {
-    // 16 MHz / 9600 baud
     UBRR0H = 0;
     UBRR0L = 103;
 
-    UCSR0B = (1 << RXEN0) | (1 << TXEN0);
+    UCSR0B = (1 << RXEN0) |
+             (1 << TXEN0);
 
-    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+    UCSR0C = (1 << UCSZ01) |
+             (1 << UCSZ00);
 }
 
 void UART_sendChar(char c)
@@ -42,28 +32,10 @@ void UART_sendString(const char *str)
     }
 }
 
-// ------------------------------------------------------------
-// Timer1 PWM for Servo
-//
-// F_CPU = 16 MHz
-// Prescaler = 8
-//
-// Timer frequency:
-// 16 MHz / 8 = 2 MHz
-//
-// 1 timer tick = 0.5 us
-//
-// 20 ms period:
-// 20,000 us / 0.5 us = 40,000
-// ------------------------------------------------------------
-
 void Servo_init()
 {
-    // PB1 / OC1A output
     DDRB |= (1 << PB1);
 
-    // Fast PWM Mode 14
-    // TOP = ICR1
     TCCR1A =
         (1 << COM1A1) |
         (1 << WGM11);
@@ -71,28 +43,17 @@ void Servo_init()
     TCCR1B =
         (1 << WGM13) |
         (1 << WGM12) |
-        (1 << CS11);       // Prescaler = 8
+        (1 << CS11);
 
-    // 20 ms period
     ICR1 = 39999;
 
-    // Start at 90 degrees
     OCR1A = 3000;
 }
 
-// ------------------------------------------------------------
-// Set servo pulse width
-// ------------------------------------------------------------
-
 void Servo_setMicroseconds(uint16_t us)
 {
-    // 1 timer tick = 0.5 us
     OCR1A = us * 2;
 }
-
-// ------------------------------------------------------------
-// Set servo angle
-// ------------------------------------------------------------
 
 void Servo_setAngle(int angle)
 {
@@ -112,10 +73,6 @@ void Servo_setAngle(int angle)
     Servo_setMicroseconds(pulse);
 }
 
-// ------------------------------------------------------------
-// Receive command
-// ------------------------------------------------------------
-
 void processSerial()
 {
     static char buffer[10];
@@ -125,7 +82,6 @@ void processSerial()
     {
         char c = UDR0;
 
-        // Enter
         if (c == '\r' || c == '\n')
         {
             if (index == 0)
@@ -137,13 +93,12 @@ void processSerial()
 
             index = 0;
 
-            // Validate
             if (angle >= 0 && angle <= 180)
             {
                 Servo_setAngle(angle);
 
                 UART_sendString("OK: ");
-                
+
                 char msg[10];
                 itoa(angle, msg, 10);
 
@@ -157,8 +112,6 @@ void processSerial()
                 );
             }
         }
-
-        // Number
         else if (c >= '0' && c <= '9')
         {
             if (index < sizeof(buffer) - 1)
@@ -166,8 +119,6 @@ void processSerial()
                 buffer[index++] = c;
             }
         }
-
-        // Negative sign or other invalid character
         else
         {
             UART_sendString(
@@ -178,10 +129,6 @@ void processSerial()
         }
     }
 }
-
-// ------------------------------------------------------------
-// MAIN
-// ------------------------------------------------------------
 
 int main()
 {

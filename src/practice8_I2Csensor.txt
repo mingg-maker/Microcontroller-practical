@@ -4,14 +4,10 @@
 #include <util/delay.h>
 #include <stdint.h>
 
-// =====================================================
-// UART
-// =====================================================
-
 void uart_init(void)
 {
     UBRR0H = 0;
-    UBRR0L = 103;              // 9600 baud @ 16MHz
+    UBRR0L = 103;
 
     UCSR0B = (1 << TXEN0);
 
@@ -22,6 +18,7 @@ void uart_init(void)
 void uart_send_char(char c)
 {
     while (!(UCSR0A & (1 << UDRE0)));
+
     UDR0 = c;
 }
 
@@ -39,28 +36,18 @@ void uart_send_hex(uint8_t x)
     uart_send_char(hex[x & 0x0F]);
 }
 
-
-// =====================================================
-// I2C
-// =====================================================
-
 void i2c_init(void)
 {
-    // PC4 SDA, PC5 SCL
     DDRC &= ~((1 << PC4) | (1 << PC5));
 
-    // Pull-up nội bộ
     PORTC |= (1 << PC4) | (1 << PC5);
 
-    // Prescaler = 1
     TWSR &= ~((1 << TWPS1) | (1 << TWPS0));
 
-    // 100 kHz
     TWBR = 72;
 
     TWCR = (1 << TWEN);
 }
-
 
 uint8_t i2c_start(void)
 {
@@ -72,7 +59,6 @@ uint8_t i2c_start(void)
 
     return (TWSR & 0xF8);
 }
-
 
 uint8_t i2c_write(uint8_t data)
 {
@@ -86,7 +72,6 @@ uint8_t i2c_write(uint8_t data)
     return (TWSR & 0xF8);
 }
 
-
 void i2c_stop(void)
 {
     TWCR = (1 << TWINT) |
@@ -95,11 +80,6 @@ void i2c_stop(void)
 
     _delay_us(20);
 }
-
-
-// =====================================================
-// TEST AHT10
-// =====================================================
 
 int main(void)
 {
