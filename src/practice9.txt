@@ -1,0 +1,203 @@
+#include <Arduino.h>
+#include <avr/io.h>
+
+// ============================================================
+// PRACTICE 9
+// Serial Control of Servo Motor - ATmega328P
+// F_CPU = 16 MHz
+// UART = 9600
+// Servo = PB1 / OC1A
+// ============================================================
+
+#define SERVO_MIN_US  600
+#define SERVO_MAX_US  2400
+
+// ------------------------------------------------------------
+// UART
+// ------------------------------------------------------------
+
+void UART_init()
+{
+    // 16 MHz / 9600 baud
+    UBRR0H = 0;
+    UBRR0L = 103;
+
+    UCSR0B = (1 << RXEN0) | (1 << TXEN0);
+
+    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+}
+
+void UART_sendChar(char c)
+{
+    while (!(UCSR0A & (1 << UDRE0)));
+
+    UDR0 = c;
+}
+
+void UART_sendString(const char *str)
+{
+    while (*str)
+    {
+        UART_sendChar(*str++);
+    }
+}
+
+// ------------------------------------------------------------
+// Timer1 PWM for Servo
+//
+// F_CPU = 16 MHz
+// Prescaler = 8
+//
+// Timer frequency:
+// 16 MHz / 8 = 2 MHz
+//
+// 1 timer tick = 0.5 us
+//
+// 20 ms period:
+// 20,000 us / 0.5 us = 40,000
+// ------------------------------------------------------------
+
+void Servo_init()
+{
+    // PB1 / OC1A output
+    DDRB |= (1 << PB1);
+
+    // Fast PWM Mode 14
+    // TOP = ICR1
+    TCCR1A =
+        (1 << COM1A1) |
+        (1 << WGM11);
+
+    TCCR1B =
+        (1 << WGM13) |
+        (1 << WGM12) |
+        (1 << CS11);       // Prescaler = 8
+
+    // 20 ms period
+    ICR1 = 39999;
+
+    // Start at 90 degrees
+    OCR1A = 3000;
+}
+
+// ------------------------------------------------------------
+// Set servo pulse width
+// ------------------------------------------------------------
+
+void Servo_setMicroseconds(uint16_t us)
+{
+    // 1 timer tick = 0.5 us
+    OCR1A = us * 2;
+}
+
+// ------------------------------------------------------------
+// Set servo angle
+// ------------------------------------------------------------
+
+void Servo_setAngle(int angle)
+{
+    if (angle < 0)
+        angle = 0;
+
+    if (angle > 180)
+        angle = 180;
+
+    uint16_t pulse;
+
+    pulse =
+        SERVO_MIN_US +
+        ((uint32_t)angle *
+         (SERVO_MAX_US - SERVO_MIN_US)) / 180;
+
+    Servo_setMicroseconds(pulse);
+}
+
+// ------------------------------------------------------------
+// Receive command
+// ------------------------------------------------------------
+
+void processSerial()
+{
+    static char buffer[10];
+    static uint8_t index = 0;
+
+    if (UCSR0A & (1 << RXC0))
+    {
+        char c = UDR0;
+
+        // Enter
+        if (c == '\r' || c == '\n')
+        {
+            if (index == 0)
+                return;
+
+            buffer[index] = '\0';
+
+            int angle = atoi(buffer);
+
+            index = 0;
+
+            // Validate
+            if (angle >= 0 && angle <= 180)
+            {
+                Servo_setAngle(angle);
+
+                UART_sendString("OK: ");
+                
+                char msg[10];
+                itoa(angle, msg, 10);
+
+                UART_sendString(msg);
+                UART_sendString(" degrees\r\n");
+            }
+            else
+            {
+                UART_sendString(
+                    "ERROR: Angle must be 0-180\r\n"
+                );
+            }
+        }
+
+        // Number
+        else if (c >= '0' && c <= '9')
+        {
+            if (index < sizeof(buffer) - 1)
+            {
+                buffer[index++] = c;
+            }
+        }
+
+        // Negative sign or other invalid character
+        else
+        {
+            UART_sendString(
+                "ERROR: Enter an angle from 0 to 180\r\n"
+            );
+
+            index = 0;
+        }
+    }
+}
+
+// ------------------------------------------------------------
+// MAIN
+// ------------------------------------------------------------
+
+int main()
+{
+    UART_init();
+    Servo_init();
+
+    UART_sendString("\r\n");
+    UART_sendString("===============================\r\n");
+    UART_sendString("ATmega328P SERVO CONTROL\r\n");
+    UART_sendString("===============================\r\n");
+    UART_sendString("Enter angle 0-180:\r\n");
+
+    while (1)
+    {
+        processSerial();
+    }
+
+    return 0;
+}
