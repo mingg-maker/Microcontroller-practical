@@ -1,19 +1,21 @@
+#define F_CPU 16000000UL
+
 #include <avr/io.h>
-#include <avr/interrupt.h>
 #include <util/delay.h>
 #include <stdint.h>
 
-#define LCD_RS PB0
-#define LCD_EN PB1
-#define LCD_D4 PB2
-#define LCD_D5 PB3
-#define LCD_D6 PB4
-#define LCD_D7 PB5
+#define LCD_RS  PB0
+#define LCD_EN  PB1
+#define LCD_D4  PB2
+#define LCD_D5  PB3
+#define LCD_D6  PB4
+#define LCD_D7  PB5
 
 void LCD_Enable(void)
 {
     PORTB |= (1 << LCD_EN);
     _delay_us(1);
+
     PORTB &= ~(1 << LCD_EN);
     _delay_us(100);
 }
@@ -116,7 +118,7 @@ void LCD_SetCursor(uint8_t row, uint8_t column)
     LCD_Command(address);
 }
 
-void LCD_Print(const char *str)
+void LCD_Print(char *str)
 {
     while (*str)
     {
@@ -148,17 +150,11 @@ void LCD_PrintNumber(uint16_t number)
     }
 }
 
-volatile uint32_t adc_sum = 0;
-volatile uint8_t adc_sample_count = 0;
-volatile uint16_t adc_average = 0;
-volatile uint8_t adc_data_ready = 0;
-
 void ADC_Init(void)
 {
     ADMUX = (1 << REFS0);
 
     ADCSRA = (1 << ADEN) |
-             (1 << ADIE) |
              (1 << ADPS2) |
              (1 << ADPS1) |
              (1 << ADPS0);
@@ -168,32 +164,35 @@ void ADC_Init(void)
     DIDR0 |= (1 << ADC0D);
 }
 
-ISR(ADC_vect)
+uint16_t ADC_Read(void)
 {
     uint8_t low;
     uint8_t high;
-    uint16_t adc_value;
+
+    ADCSRA |= (1 << ADSC);
+
+    while (ADCSRA & (1 << ADSC))
+    {
+    }
 
     low = ADCL;
     high = ADCH;
 
-    adc_value = ((uint16_t)high << 8) | low;
+    return ((uint16_t)high << 8) | low;
+}
 
-    adc_sum += adc_value;
+uint16_t ADC_Average(void)
+{
+    uint32_t sum = 0;
 
-    adc_sample_count++;
+    uint8_t i;
 
-    if (adc_sample_count >= 16)
+    for (i = 0; i < 16; i++)
     {
-        adc_average = (uint16_t)(adc_sum >> 4);
-
-        adc_data_ready = 1;
-
-        adc_sum = 0;
-        adc_sample_count = 0;
+        sum += ADC_Read();
     }
 
-    ADCSRA |= (1 << ADSC);
+    return (uint16_t)(sum / 16);
 }
 
 uint16_t ADC_To_mV(uint16_t adc)
@@ -205,6 +204,7 @@ int main(void)
 {
     uint16_t adc_value;
     uint16_t voltage_mV;
+
     uint16_t voltage_integer;
     uint16_t voltage_decimal;
 
@@ -212,60 +212,40 @@ int main(void)
 
     ADC_Init();
 
-    sei();
-
-    ADCSRA |= (1 << ADSC);
-
     LCD_Clear();
 
     while (1)
     {
-        if (adc_data_ready)
-        {
-            cli();
+        adc_value = ADC_Average();
 
-            adc_value = adc_average;
+        voltage_mV = ADC_To_mV(adc_value);
 
-            adc_data_ready = 0;
+        voltage_integer = voltage_mV / 1000;
+        voltage_decimal = voltage_mV % 1000;
 
-            sei();
+        LCD_SetCursor(0, 0);
 
-            voltage_mV = ADC_To_mV(adc_value);
+        LCD_Print("ADC: ");
+        LCD_PrintNumber(adc_value);
 
-            voltage_integer = voltage_mV / 1000;
-            voltage_decimal = voltage_mV % 1000;
+        LCD_Print("     ");
 
-            LCD_SetCursor(0, 0);
+        LCD_SetCursor(1, 0);
 
-            LCD_Print("ADC: ");
+        LCD_Print("V: ");
+        LCD_PrintNumber(voltage_integer);
+        LCD_Data('.');
 
-            LCD_PrintNumber(adc_value);
+        if (voltage_decimal < 100)
+            LCD_Data('0');
 
-            LCD_Print("     ");
+        if (voltage_decimal < 10)
+            LCD_Data('0');
 
-            LCD_SetCursor(1, 0);
+        LCD_PrintNumber(voltage_decimal);
 
-            LCD_Print("V: ");
+        LCD_Print(" V");
 
-            LCD_PrintNumber(voltage_integer);
-
-            LCD_Data('.');
-
-            if (voltage_decimal < 100)
-            {
-                LCD_Data('0');
-            }
-
-            if (voltage_decimal < 10)
-            {
-                LCD_Data('0');
-            }
-
-            LCD_PrintNumber(voltage_decimal);
-
-            LCD_Print(" V");
-
-            _delay_ms(200);
-        }
+        _delay_ms(200);
     }
 }

@@ -1,9 +1,13 @@
+#define F_CPU 16000000UL
+
 #include <Arduino.h>
+#include <avr/io.h>
 #include <avr/interrupt.h>
+#include <stdint.h>
 
 #define ADC_PIN       A0
 #define SENSOR_PIN    A1
-#define LED_PIN       9
+#define LED_PIN       11
 
 #define ADC_PERIOD       10
 #define LED_PERIOD       20
@@ -41,16 +45,43 @@ ISR(TIMER1_COMPA_vect)
     systemTick++;
 }
 
+void PWM_Init()
+{
+    DDRB |= (1 << PB3);
+
+    TCCR2A = (1 << COM2A1) |
+             (1 << WGM21)  |
+             (1 << WGM20);
+
+    TCCR2B = (1 << CS22);
+
+    OCR2A = 128;
+}
+
+void PWM_SetDuty(uint8_t duty)
+{
+    OCR2A = duty;
+}
+
 void task_ADC()
 {
     adcValue = analogRead(ADC_PIN);
 }
 
-void task_LED_PWM()
+void task_PWM()
 {
-    pwmValue = map(adcValue, 0, 1023, 0, 255);
+    static uint8_t duty = 0;
 
-    analogWrite(LED_PIN, pwmValue);
+    duty += 5;
+
+    if (duty >= 250)
+    {
+        duty = 0;
+    }
+
+    PWM_SetDuty(duty);
+
+    pwmValue = duty;
 }
 
 void task_Sensor()
@@ -87,6 +118,8 @@ void setup()
 
     timer1_init();
 
+    PWM_Init();
+
     sei();
 
     Serial.println();
@@ -112,7 +145,7 @@ void loop()
     {
         lastLEDTime = currentTime;
 
-        task_LED_PWM();
+        task_PWM();
     }
 
     if ((currentTime - lastSensorTime) >= SENSOR_PERIOD)

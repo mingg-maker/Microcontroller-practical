@@ -1,66 +1,26 @@
-#define F_CPU 16000000UL
-
+#include <Arduino.h>
 #include <avr/io.h>
-#include <util/delay.h>
-#include <stdint.h>
 
-void uart_init(void)
-{
-    UBRR0H = 0;
-    UBRR0L = 103;
-
-    UCSR0B = (1 << TXEN0);
-
-    UCSR0C = (1 << UCSZ01) |
-             (1 << UCSZ00);
-}
-
-void uart_send_char(char c)
-{
-    while (!(UCSR0A & (1 << UDRE0)));
-
-    UDR0 = c;
-}
-
-void uart_send_string(const char *s)
-{
-    while (*s)
-        uart_send_char(*s++);
-}
-
-void uart_send_hex(uint8_t x)
-{
-    const char hex[] = "0123456789ABCDEF";
-
-    uart_send_char(hex[(x >> 4) & 0x0F]);
-    uart_send_char(hex[x & 0x0F]);
-}
+#define AHT20_ADDR 0x38
 
 void i2c_init(void)
 {
-    DDRC &= ~((1 << PC4) | (1 << PC5));
-
-    PORTC |= (1 << PC4) | (1 << PC5);
-
-    TWSR &= ~((1 << TWPS1) | (1 << TWPS0));
-
+    TWSR = 0x00;
     TWBR = 72;
 
     TWCR = (1 << TWEN);
 }
 
-uint8_t i2c_start(void)
+void i2c_start(void)
 {
     TWCR = (1 << TWINT) |
            (1 << TWSTA) |
            (1 << TWEN);
 
     while (!(TWCR & (1 << TWINT)));
-
-    return (TWSR & 0xF8);
 }
 
-uint8_t i2c_write(uint8_t data)
+void i2c_write(uint8_t data)
 {
     TWDR = data;
 
@@ -68,55 +28,149 @@ uint8_t i2c_write(uint8_t data)
            (1 << TWEN);
 
     while (!(TWCR & (1 << TWINT)));
+}
 
-    return (TWSR & 0xF8);
+uint8_t i2c_read_ack(void)
+{
+    TWCR = (1 << TWINT) |
+           (1 << TWEA)  |
+           (1 << TWEN);
+
+    while (!(TWCR & (1 << TWINT)));
+
+    return TWDR;
+}
+
+uint8_t i2c_read_nack(void)
+{
+    TWCR = (1 << TWINT) |
+           (1 << TWEN);
+
+    while (!(TWCR & (1 << TWINT)));
+
+    return TWDR;
 }
 
 void i2c_stop(void)
 {
     TWCR = (1 << TWINT) |
-           (1 << TWEN) |
+           (1 << TWEN)   |
            (1 << TWSTO);
 
-    _delay_us(20);
+    delayMicroseconds(10);
 }
 
-int main(void)
+void AHT20_init(void)
 {
-    uint8_t status;
+    i2c_start();
 
-    uart_init();
-    i2c_init();
+    i2c_write((AHT20_ADDR << 1) | 0);
 
-    _delay_ms(500);
-
-    uart_send_string("\r\nAHT10 I2C TEST\r\n");
-    uart_send_string("Scanning address 0x38...\r\n");
-
-    status = i2c_start();
-
-    uart_send_string("START status = 0x");
-    uart_send_hex(status);
-    uart_send_string("\r\n");
-
-    status = i2c_write((0x38 << 1) | 0);
-
-    uart_send_string("ADDRESS status = 0x");
-    uart_send_hex(status);
-    uart_send_string("\r\n");
+    i2c_write(0xBE);
+    i2c_write(0x08);
+    i2c_write(0x00);
 
     i2c_stop();
 
-    if (status == 0x18)
-    {
-        uart_send_string("AHT10 FOUND!\r\n");
-    }
-    else
-    {
-        uart_send_string("AHT10 NOT FOUND!\r\n");
-    }
+    delay(10);
+}
 
-    while (1)
-    {
-    }
+void AHT20_start_measurement(void)
+{
+    i2c_start();
+
+    i2c_write((AHT20_ADDR << 1) | 0);
+
+    i2c_write(0xAC);
+    i2c_write(0x33);
+    i2c_write(0x00);
+
+    i2c_stop();
+}
+
+void AHT20_read_data(float *temperature, float *humidity)
+{
+    uint8_t data[7];
+
+    delay(80);
+
+    i2c_start();
+
+    i2c_write((AHT20_ADDR << 1) | 1);
+
+    data[0] = i2c_read_ack();
+    data[1] = i2c_read_ack();
+    data[2] = i2c_read_ack();
+    data[3] = i2c_read_ack();
+    data[4] = i2c_read_ack();
+    data[5] = i2c_read_ack();
+
+    data[6] = i2c_read_nack();
+
+    i2c_stop();
+
+    uint32_t raw_humidity;
+
+    raw_humidity =
+        ((uint32_t)data[1] << 12) |
+        ((uint32_t)data[2] << 4)  |
+        ((data[3] >> 4) & 0x0F);
+
+    uint32_t raw_temperature;
+
+    raw_temperature =
+        ((uint32_t)(data[3] & 0x0F) << 16) |
+        ((uint32_t)data[4] << 8) |
+        data[5];
+
+    *humidity =
+        ((float)raw_humidity * 100.0) / 1048576.0;
+
+    *temperature =
+        ((float)raw_temperature * 200.0) / 1048576.0 - 50.0;
+}
+
+void setup()
+{
+    Serial.begin(9600);
+
+    delay(1000);
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("Practice 8 - I2C + AHT20");
+    Serial.println("ATmega328P");
+    Serial.println("================================");
+
+    i2c_init();
+
+    Serial.println("I2C initialized");
+
+    AHT20_init();
+
+    Serial.println("AHT20 initialized");
+
+    Serial.println();
+}
+
+void loop()
+{
+    float temperature;
+    float humidity;
+
+    AHT20_start_measurement();
+
+    AHT20_read_data(&temperature, &humidity);
+
+    Serial.print("Temperature: ");
+    Serial.print(temperature, 2);
+    Serial.println(" C");
+
+    Serial.print("Humidity: ");
+    Serial.print(humidity, 2);
+    Serial.println(" %");
+
+    Serial.println("----------------------------");
+
+    delay(1000);
 }

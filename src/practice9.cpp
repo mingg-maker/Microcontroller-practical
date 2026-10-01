@@ -1,20 +1,17 @@
 #include <Arduino.h>
 #include <avr/io.h>
-#include <stdlib.h>
 
-#define SERVO_MIN_US 600
-#define SERVO_MAX_US 2400
+#define SERVO_MIN_US  600
+#define SERVO_MAX_US  2400
 
 void UART_init()
 {
     UBRR0H = 0;
     UBRR0L = 103;
 
-    UCSR0B = (1 << RXEN0) |
-             (1 << TXEN0);
+    UCSR0B = (1 << RXEN0) | (1 << TXEN0);
 
-    UCSR0C = (1 << UCSZ01) |
-             (1 << UCSZ00);
+    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
 }
 
 void UART_sendChar(char c)
@@ -98,7 +95,7 @@ void processSerial()
                 Servo_setAngle(angle);
 
                 UART_sendString("OK: ");
-
+                
                 char msg[10];
                 itoa(angle, msg, 10);
 
